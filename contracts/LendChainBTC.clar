@@ -170,3 +170,103 @@
         )
     )
 )
+
+(define-public (make-repayment (amount uint))
+    (let (
+        (borrower tx-sender)
+        (loan (unwrap! (map-get? loans { borrower: borrower }) ERR-LOAN-NOT-FOUND))
+        (current-height block-height)
+    )
+        (asserts! (is-contract-active) ERR-UNAUTHORIZED)
+        (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+        (asserts! (is-eq (get status loan) "ACTIVE") ERR-LOAN-NOT-ACTIVE)
+        (asserts! (<= current-height (get end-height loan)) ERR-LOAN-EXPIRED)
+
+        (let (
+            (new-total-repaid (try! (safe-add (get total-repaid loan) amount)))
+            (interest-amount (try! (calculate-interest (get principal-amount loan) (get interest-rate loan))))
+            (total-owed (try! (safe-add (get principal-amount loan) interest-amount)))
+        )
+            (try! (stx-transfer? amount borrower (as-contract tx-sender)))
+
+            (map-set loans
+                { borrower: borrower }
+                (merge loan {
+                    total-repaid: new-total-repaid,
+                    last-payment-height: current-height,
+                    status: (if (>= new-total-repaid total-owed)
+                        "COMPLETED"
+                        "ACTIVE"
+                    )
+                })
+            )
+
+            (var-set total-pool-amount (try! (safe-add (var-get total-pool-amount) amount)))
+
+            (if (>= new-total-repaid total-owed)
+                (var-set total-active-loans (try! (safe-subtract (var-get total-active-loans) u1)))
+                true
+            )
+
+            (ok true)
+        )
+    )
+)
+
+;; Read-only Functions
+(define-read-only (calculate-interest (principal uint) (rate uint))
+    (begin
+        (asserts! (is-valid-rate rate) ERR-INVALID-RATE)
+        (safe-divide (* principal rate) u1000000)
+    )
+)
+
+(define-read-only (get-loan-details (borrower principal))
+    (map-get? loans { borrower: borrower })
+)
+
+(define-read-only (get-pool-share (lender principal))
+    (map-get? lending-pool-shares { lender: lender })
+)
+
+(define-read-only (get-total-pool-amount)
+    (var-get total-pool-amount)
+)
+
+;; Admin Functions
+(define-public (update-loan-status (borrower principal) (new-status (string-ascii 20)))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) ERR-UNAUTHORIZED)
+        (asserts! (is-contract-active) ERR-UNAUTHORIZED)
+        (match (map-get? loans { borrower: borrower })
+            loan (begin
+                (map-set loans
+                    { borrower: borrower }
+                    (merge loan { 
+                        status: new-status,
+                        last-payment-height: block-height 
+                    })
+                )
+                (ok true)
+            )
+            ERR-LOAN-NOT-FOUND
+        )
+    )
+)
+
+(define-public (pause-contract)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) ERR-UNAUTHORIZED)
+        (var-set contract-paused true)
+        (ok true)
+    )
+)
+
+(define-public (resume-contract)
+    (begin
+        (asserts! (is-eq tx-sender cossntract-owner) ERR-UNAUTHORIZED)
+        (var-set contract-paused false)
+        (ok true)
+    )
+)
+
