@@ -1,4 +1,4 @@
-# Microloan Smart Contract
+# LendChainBTC Smart Contract
 
 ## Overview
 This smart contract facilitates a decentralized microloan system built on the Stacks blockchain. The contract enables borrowers to request loans, lenders to contribute to a lending pool, and repayments to be made with interest. It ensures proper state management and error handling while maintaining key functionalities like loan management and lending pool contributions.
